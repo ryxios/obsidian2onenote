@@ -23,6 +23,13 @@ export interface OneNoteExporterSettings {
   cachedSections: OneNoteSection[];
 }
 
+export interface OneNoteExportTarget {
+  notebookId: string;
+  notebookName: string;
+  sectionId: string;
+  sectionName: string;
+}
+
 export interface ExportResult {
   filePath: string;
   success: boolean;

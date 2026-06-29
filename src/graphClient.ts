@@ -23,12 +23,20 @@ export class GraphClient {
     return data.value.sort((a, b) => a.displayName.localeCompare(b.displayName));
   }
 
-  async createPage(html: string, sectionId: string): Promise<void> {
+  async createPage(html: string, notebookId: string, sectionId: string): Promise<void> {
+    if (!notebookId) {
+      throw new Error("Select a OneNote notebook before exporting.");
+    }
     if (!sectionId) {
       throw new Error("Select a OneNote section before exporting.");
     }
 
-    await this.request<void>(`/me/onenote/pages?sectionId=${encodeURIComponent(sectionId)}`, {
+    const notebookSections = await this.getSections(notebookId);
+    if (!notebookSections.some((section) => section.id === sectionId)) {
+      throw new Error("Selected OneNote section does not belong to the selected notebook.");
+    }
+
+    await this.request<void>(`/me/onenote/sections/${encodeURIComponent(sectionId)}/pages`, {
       method: "POST",
       headers: {
         "Content-Type": "application/xhtml+xml"
