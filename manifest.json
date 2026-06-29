@@ -1,0 +1,10 @@
+{
+  "id": "obsidian-onenote-exporter",
+  "name": "Obsidian OneNote Exporter",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "Export Markdown notes from Obsidian to Microsoft OneNote using Microsoft Graph.",
+  "author": "OpenAI",
+  "authorUrl": "https://openai.com",
+  "isDesktopOnly": false
+}

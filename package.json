@@ -1,0 +1,29 @@
+{
+  "name": "obsidian-onenote-exporter",
+  "version": "1.0.0",
+  "description": "Export Obsidian Markdown notes to Microsoft OneNote via Microsoft Graph.",
+  "main": "main.js",
+  "scripts": {
+    "dev": "node esbuild.config.mjs --watch",
+    "build": "tsc -noEmit -skipLibCheck && node esbuild.config.mjs production"
+  },
+  "keywords": [
+    "obsidian",
+    "onenote",
+    "microsoft-graph",
+    "export"
+  ],
+  "author": "OpenAI",
+  "license": "MIT",
+  "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
+    "@types/node": "^20.14.10",
+    "builtin-modules": "^3.3.0",
+    "esbuild": "^0.23.0",
+    "obsidian": "^1.6.5",
+    "typescript": "^5.5.3"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  }
+}
