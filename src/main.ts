@@ -1,9 +1,9 @@
-import { FuzzySuggestModal, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { FuzzyMatch, FuzzySuggestModal, Notice, Plugin, TFile, TFolder } from "obsidian";
 import { OneNoteExporter } from "./exporter";
 import { GraphClient } from "./graphClient";
 import { MarkdownConverter } from "./markdownConverter";
 import { OneNoteExporterSettingTab } from "./settings";
-import { DEFAULT_SETTINGS, OneNoteExporterSettings } from "./types";
+import { DEFAULT_SETTINGS, OneNoteExportTarget, OneNoteExporterSettings, OneNoteNotebook, OneNoteSection } from "./types";
 
 export default class OneNoteExporterPlugin extends Plugin {
   settings: OneNoteExporterSettings = DEFAULT_SETTINGS;
@@ -15,7 +15,7 @@ export default class OneNoteExporterPlugin extends Plugin {
     await this.loadSettings();
     this.graphClient = new GraphClient(() => this.settings.graphAccessToken);
     this.converter = new MarkdownConverter(this.app);
-    this.exporter = new OneNoteExporter(this.app, this.graphClient, this.converter, () => this.settings.selectedSectionId);
+    this.exporter = new OneNoteExporter(this.app, this.graphClient, this.converter);
 
     this.addSettingTab(new OneNoteExporterSettingTab(this.app, this));
     this.addRibbonIcon("upload", "Export current note to OneNote", () => this.exportCurrentNote());
@@ -78,7 +78,9 @@ export default class OneNoteExporterPlugin extends Plugin {
       new Notice("Open a Markdown note before exporting to OneNote.");
       return;
     }
-    await this.exporter.exportFile(file);
+    const target = await this.chooseExportTarget();
+    if (!target) return;
+    await this.exporter.exportFile(file, target);
   }
 
   private async exportFolder(): Promise<void> {
@@ -88,12 +90,16 @@ export default class OneNoteExporterPlugin extends Plugin {
       new Notice("No folders found in this vault.");
       return;
     }
-    new FolderSuggestModal(this.app, folders, async (folder) => this.exporter.exportFolder(folder)).open();
+    const target = await this.chooseExportTarget();
+    if (!target) return;
+    new FolderSuggestModal(this.app, folders, async (folder) => this.exporter.exportFolder(folder, target)).open();
   }
 
   private async exportVault(): Promise<void> {
     if (!this.ensureReady()) return;
-    await this.exporter.exportVault();
+    const target = await this.chooseExportTarget();
+    if (!target) return;
+    await this.exporter.exportVault(target);
   }
 
   private ensureReady(): boolean {
@@ -101,12 +107,63 @@ export default class OneNoteExporterPlugin extends Plugin {
       new Notice("Add a Microsoft Graph access token in OneNote Exporter settings.");
       return false;
     }
-    if (!this.settings.selectedSectionId) {
-      new Notice("Select a OneNote notebook and section in OneNote Exporter settings.");
-      return false;
-    }
     return true;
   }
+
+  private async chooseExportTarget(): Promise<OneNoteExportTarget | null> {
+    try {
+      const notebooks = await this.getAvailableNotebooks();
+      if (!notebooks.length) {
+        new Notice("No OneNote notebooks found. Refresh notebooks or check your Microsoft Graph permissions.");
+        return null;
+      }
+
+      const notebook = await NotebookSuggestModal.choose(this.app, notebooks);
+      if (!notebook) return null;
+
+      const sections = await this.graphClient.getSections(notebook.id);
+      this.settings.selectedNotebookId = notebook.id;
+      this.settings.selectedNotebookName = notebook.displayName;
+      this.settings.cachedSections = sections;
+      this.settings.selectedSectionId = "";
+      this.settings.selectedSectionName = "";
+
+      if (!sections.length) {
+        await this.saveSettings();
+        new Notice(`No sections found in notebook ${notebook.displayName}.`);
+        return null;
+      }
+
+      const section = await SectionSuggestModal.choose(this.app, notebook, sections);
+      if (!section) {
+        await this.saveSettings();
+        return null;
+      }
+
+      this.settings.selectedSectionId = section.id;
+      this.settings.selectedSectionName = section.displayName;
+      await this.saveSettings();
+
+      return {
+        notebookId: notebook.id,
+        notebookName: notebook.displayName,
+        sectionId: section.id,
+        sectionName: section.displayName
+      };
+    } catch (error) {
+      this.handleError("Failed to choose OneNote export target", error);
+      return null;
+    }
+  }
+
+  private async getAvailableNotebooks(): Promise<OneNoteNotebook[]> {
+    if (!this.settings.cachedNotebooks.length) {
+      this.settings.cachedNotebooks = await this.graphClient.getNotebooks();
+      await this.saveSettings();
+    }
+    return this.settings.cachedNotebooks;
+  }
+
 
   private getFolders(): TFolder[] {
     const folders: TFolder[] = [];
@@ -124,6 +181,95 @@ export default class OneNoteExporterPlugin extends Plugin {
     const message = error instanceof Error ? error.message : String(error);
     console.error(`[OneNote Exporter] ${prefix}: ${message}`, error);
     new Notice(`${prefix}: ${message}`);
+  }
+}
+
+class NotebookSuggestModal extends FuzzySuggestModal<OneNoteNotebook> {
+  private hasResolved = false;
+
+  static choose(app: OneNoteExporterPlugin["app"], notebooks: OneNoteNotebook[]): Promise<OneNoteNotebook | null> {
+    return new Promise((resolve) => new NotebookSuggestModal(app, notebooks, resolve).open());
+  }
+
+  private constructor(
+    app: OneNoteExporterPlugin["app"],
+    private readonly notebooks: OneNoteNotebook[],
+    private readonly resolveChoice: (notebook: OneNoteNotebook | null) => void
+  ) {
+    super(app);
+    this.setPlaceholder("Select the OneNote notebook for this export");
+  }
+
+  getItems(): OneNoteNotebook[] {
+    return this.notebooks;
+  }
+
+  getItemText(notebook: OneNoteNotebook): string {
+    return notebook.displayName;
+  }
+
+  onChooseSuggestion(item: FuzzyMatch<OneNoteNotebook>, evt: MouseEvent | KeyboardEvent): void {
+    this.choose(item.item);
+    this.close();
+  }
+
+  onChooseItem(notebook: OneNoteNotebook): void {
+    this.choose(notebook);
+  }
+
+  onClose(): void {
+    this.choose(null);
+  }
+
+  private choose(notebook: OneNoteNotebook | null): void {
+    if (this.hasResolved) return;
+    this.hasResolved = true;
+    this.resolveChoice(notebook);
+  }
+}
+
+class SectionSuggestModal extends FuzzySuggestModal<OneNoteSection> {
+  private hasResolved = false;
+
+  static choose(app: OneNoteExporterPlugin["app"], notebook: OneNoteNotebook, sections: OneNoteSection[]): Promise<OneNoteSection | null> {
+    return new Promise((resolve) => new SectionSuggestModal(app, notebook, sections, resolve).open());
+  }
+
+  private constructor(
+    app: OneNoteExporterPlugin["app"],
+    private readonly notebook: OneNoteNotebook,
+    private readonly sections: OneNoteSection[],
+    private readonly resolveChoice: (section: OneNoteSection | null) => void
+  ) {
+    super(app);
+    this.setPlaceholder(`Select a section in ${notebook.displayName}`);
+  }
+
+  getItems(): OneNoteSection[] {
+    return this.sections;
+  }
+
+  getItemText(section: OneNoteSection): string {
+    return `${this.notebook.displayName} / ${section.displayName}`;
+  }
+
+  onChooseSuggestion(item: FuzzyMatch<OneNoteSection>, evt: MouseEvent | KeyboardEvent): void {
+    this.choose(item.item);
+    this.close();
+  }
+
+  onChooseItem(section: OneNoteSection): void {
+    this.choose(section);
+  }
+
+  onClose(): void {
+    this.choose(null);
+  }
+
+  private choose(section: OneNoteSection | null): void {
+    if (this.hasResolved) return;
+    this.hasResolved = true;
+    this.resolveChoice(section);
   }
 }
 
