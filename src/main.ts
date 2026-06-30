@@ -1,4 +1,4 @@
-import { FuzzySuggestModal, Notice, Plugin, TFile, TFolder } from "obsidian";
+import { FuzzyMatch, FuzzySuggestModal, Notice, Plugin, TFile, TFolder } from "obsidian";
 import { OneNoteExporter } from "./exporter";
 import { GraphClient } from "./graphClient";
 import { MarkdownConverter } from "./markdownConverter";
