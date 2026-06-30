@@ -118,7 +118,7 @@ export default class OneNoteExporterPlugin extends Plugin {
         return null;
       }
 
-      const notebook = await NotebookSuggestModal.choose(this.app, notebooks);
+      const notebook = await this.openSuggestModal(new NotebookSuggestModal(this.app, notebooks));
       if (!notebook) return null;
 
       const sections = await this.graphClient.getSections(notebook.id);
@@ -134,7 +134,7 @@ export default class OneNoteExporterPlugin extends Plugin {
         return null;
       }
 
-      const section = await SectionSuggestModal.choose(this.app, notebook, sections);
+      const section = await this.openSuggestModal(new SectionSuggestModal(this.app, notebook, sections));
       if (!section) {
         await this.saveSettings();
         return null;
@@ -164,6 +164,28 @@ export default class OneNoteExporterPlugin extends Plugin {
     return this.settings.cachedNotebooks;
   }
 
+  private openSuggestModal<T>(modal: FuzzySuggestModal<T>): Promise<T | null> {
+    return new Promise((resolve) => {
+      const originalOnClose = modal.onClose.bind(modal);
+      let resolved = false;
+      modal.onClose = () => {
+        originalOnClose();
+        if (!resolved) {
+          resolved = true;
+          resolve(null);
+        }
+      };
+      const originalOnChooseItem = modal.onChooseItem.bind(modal);
+      modal.onChooseItem = (item, evt) => {
+        originalOnChooseItem(item, evt);
+        if (!resolved) {
+          resolved = true;
+          resolve(item);
+        }
+      };
+      modal.open();
+    });
+  }
 
   private getFolders(): TFolder[] {
     const folders: TFolder[] = [];
@@ -185,17 +207,7 @@ export default class OneNoteExporterPlugin extends Plugin {
 }
 
 class NotebookSuggestModal extends FuzzySuggestModal<OneNoteNotebook> {
-  private hasResolved = false;
-
-  static choose(app: OneNoteExporterPlugin["app"], notebooks: OneNoteNotebook[]): Promise<OneNoteNotebook | null> {
-    return new Promise((resolve) => new NotebookSuggestModal(app, notebooks, resolve).open());
-  }
-
-  private constructor(
-    app: OneNoteExporterPlugin["app"],
-    private readonly notebooks: OneNoteNotebook[],
-    private readonly resolveChoice: (notebook: OneNoteNotebook | null) => void
-  ) {
+  constructor(app: OneNoteExporterPlugin["app"], private readonly notebooks: OneNoteNotebook[]) {
     super(app);
     this.setPlaceholder("Select the OneNote notebook for this export");
   }
@@ -208,39 +220,13 @@ class NotebookSuggestModal extends FuzzySuggestModal<OneNoteNotebook> {
     return notebook.displayName;
   }
 
-  onChooseSuggestion(item: FuzzyMatch<OneNoteNotebook>, evt: MouseEvent | KeyboardEvent): void {
-    this.choose(item.item);
-    this.close();
-  }
-
-  onChooseItem(notebook: OneNoteNotebook): void {
-    this.choose(notebook);
-  }
-
-  onClose(): void {
-    this.choose(null);
-  }
-
-  private choose(notebook: OneNoteNotebook | null): void {
-    if (this.hasResolved) return;
-    this.hasResolved = true;
-    this.resolveChoice(notebook);
+  onChooseItem(): void {
+    return;
   }
 }
 
 class SectionSuggestModal extends FuzzySuggestModal<OneNoteSection> {
-  private hasResolved = false;
-
-  static choose(app: OneNoteExporterPlugin["app"], notebook: OneNoteNotebook, sections: OneNoteSection[]): Promise<OneNoteSection | null> {
-    return new Promise((resolve) => new SectionSuggestModal(app, notebook, sections, resolve).open());
-  }
-
-  private constructor(
-    app: OneNoteExporterPlugin["app"],
-    private readonly notebook: OneNoteNotebook,
-    private readonly sections: OneNoteSection[],
-    private readonly resolveChoice: (section: OneNoteSection | null) => void
-  ) {
+  constructor(app: OneNoteExporterPlugin["app"], private readonly notebook: OneNoteNotebook, private readonly sections: OneNoteSection[]) {
     super(app);
     this.setPlaceholder(`Select a section in ${notebook.displayName}`);
   }
@@ -253,23 +239,8 @@ class SectionSuggestModal extends FuzzySuggestModal<OneNoteSection> {
     return `${this.notebook.displayName} / ${section.displayName}`;
   }
 
-  onChooseSuggestion(item: FuzzyMatch<OneNoteSection>, evt: MouseEvent | KeyboardEvent): void {
-    this.choose(item.item);
-    this.close();
-  }
-
-  onChooseItem(section: OneNoteSection): void {
-    this.choose(section);
-  }
-
-  onClose(): void {
-    this.choose(null);
-  }
-
-  private choose(section: OneNoteSection | null): void {
-    if (this.hasResolved) return;
-    this.hasResolved = true;
-    this.resolveChoice(section);
+  onChooseItem(): void {
+    return;
   }
 }
 
